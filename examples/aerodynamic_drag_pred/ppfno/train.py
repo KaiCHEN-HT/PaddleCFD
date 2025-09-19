@@ -236,9 +236,9 @@ def train(cfg: DictConfig):
     eval_meter = AverageMeterDict()
     visualize_data_dicts = []
 
-    if paddle.distributed.get_rank() == 0:
-        logging.info(f"train indices: {datamodule.train_full_caseids}")
-        logging.info(f"test indices: {datamodule.test_full_caseids}")
+    # if paddle.distributed.get_rank() == 0:
+    logging.info(f"train indices: {datamodule.train_full_caseids}")
+    logging.info(f"test indices: {datamodule.test_full_caseids}")
 
     def cal_mre(pred, label):
         return paddle.abs(x=pred - label) / paddle.abs(x=label)
@@ -248,10 +248,10 @@ def train(cfg: DictConfig):
         max_cd_error = 0.0
         max_loss_case_id = None
         coefficent_json_dict = []
-        if paddle.distributed.get_rank() == 0:
-            logging.info(
-                f"Start evaluting {cfg.model} at epoch {epoch_id}, number of samples: {len(test_dataloader)}"
-            )
+        # if paddle.distributed.get_rank() == 0:
+        logging.info(
+            f"Start evaluting {cfg.model} at epoch {epoch_id}, number of samples: {len(test_dataloader)}"
+        )
 
         indices = datamodule.test_indices
         full_indices = datamodule.test_full_caseids
@@ -379,8 +379,8 @@ def train(cfg: DictConfig):
             return None, coefficent_json_dict
 
     for ep in range(cfg.num_epochs):
-        if paddle.distributed.get_rank() == 0:
-            train_json_dict = {}
+        # if paddle.distributed.get_rank() == 0:
+        train_json_dict = {}
         coefficent_json_dict = None
         if ep <= resume_ep:
             continue
@@ -420,7 +420,8 @@ def train(cfg: DictConfig):
 
         for data_dict in train_dataloader:
             try:
-                if idx_batch == 0 and paddle.distributed.get_rank() == 0:
+                # if idx_batch == 0 and paddle.distributed.get_rank() == 0:
+                if idx_batch == 0:
                     msg += f"Data Loading Time: {data_dict['Data_loading_time'][0]:.2f} seconds. || "
                     memory_allocated = paddle.device.cuda.memory_allocated(
                         device=device
@@ -493,7 +494,8 @@ def train(cfg: DictConfig):
 
             loss.backward(grad_tensor=loss)
 
-            if idx_batch == 0 and paddle.distributed.get_rank() == 0:
+            # if idx_batch == 0 and paddle.distributed.get_rank() == 0:
+            if idx_batch == 0:
                 memory_allocated = (
                     paddle.device.cuda.memory_allocated(device=device) / 1024**3
                 )
@@ -512,14 +514,14 @@ def train(cfg: DictConfig):
         scheduler.step()
         t2 = default_timer()
 
-        if paddle.distributed.get_rank() == 0:
-            train_json_dict["epoch"] = ep
-            if "Cd_mre" in train_l2_meter.avg:
-                train_json_dict["mre"] = train_l2_meter.avg["Cd_mre"]
-            else:
-                train_json_dict["mre"] = 0
-            train_json_dict["pressure_loss"] = train_l2_meter.avg["pressure"]
-            train_json_dict["shear_stress_loss"] = train_l2_meter.avg["wallshearstress"]
+        # if paddle.distributed.get_rank() == 0:
+        train_json_dict["epoch"] = ep
+        if "Cd_mre" in train_l2_meter.avg:
+            train_json_dict["mre"] = train_l2_meter.avg["Cd_mre"]
+        else:
+            train_json_dict["mre"] = 0
+        train_json_dict["pressure_loss"] = train_l2_meter.avg["pressure"]
+        train_json_dict["shear_stress_loss"] = train_l2_meter.avg["wallshearstress"]
 
         if num_OOM != 0:
             logging.info(f"WARNING: {num_OOM} samples OOM, skipping these samples.")
@@ -527,8 +529,8 @@ def train(cfg: DictConfig):
         train_dict = train_l2_meter.avg
         for k, v in train_dict.items():
             msg_ep += f"{v:.4f}({k}), "
-        if paddle.distributed.get_rank() == 0 and "msg" in locals():
-            logging.info(msg_ep + msg)
+        # if paddle.distributed.get_rank() == 0 and "msg" in locals():
+        logging.info(msg_ep + msg)
         max_loss_case_id = None
         if ep == 0 or (ep + 1) % cfg.save_per_epoch == 0 or ep == cfg.num_epochs - 1:
             state = {"model": model.state_dict(), "lr": optimizer.get_lr(), "epoch": ep}
