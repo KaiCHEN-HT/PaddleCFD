@@ -371,7 +371,7 @@ def train(cfg: DictConfig):
       callback(prof)
       prof.summary(sorted_by=profiler.SortedKeys.GPUTotal)
 
-    p = profiler.Profiler(scheduler = [3,14], on_trace_ready=my_on_trace_ready, timer_only=False)
+    p = profiler.Profiler(scheduler = [3,14], on_trace_ready=my_on_trace_ready, timer_only=True)
 
     p.start()
     accum_iter = 100
