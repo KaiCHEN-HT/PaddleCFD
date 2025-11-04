@@ -11,6 +11,7 @@ from typing import Dict
 from typing import List
 from typing import Tuple
 from typing import Union
+import contextlib
 
 import hydra
 import meshio
@@ -24,6 +25,8 @@ from paddle.distributed import ParallelEnv
 from paddle.distributed import fleet
 from paddle.io import DataLoader
 from paddle.io import DistributedBatchSampler
+import paddle.profiler as profiler
+import paddle.base.core as core
 
 from ppcfd.models.ppfno.data import instantiate_datamodule
 from ppcfd.models.ppfno.losses import LpLoss
@@ -46,6 +49,9 @@ if world_size > 1:
     strategy = fleet.DistributedStrategy()
     strategy.find_unused_parameters = True
     fleet.init(is_collective=True, strategy=strategy)
+
+    # strategy.gradient_merge = True
+    # strategy.gradient_merge_configs = {"k_steps": 3, "avg": True}
 
 print(f"total gpu num: {world_size}")
 
@@ -114,6 +120,8 @@ def save_vtp_from_dict(
 def train(cfg: DictConfig):
     os.makedirs(cfg.train_output_path, exist_ok=True)
     os.makedirs(os.path.join(cfg.train_output_path, "log"), exist_ok=True)
+    os.makedirs(os.path.join(cfg.train_output_path, "json"), exist_ok=True)
+    
     logging.basicConfig(
         filename=os.path.join(cfg.train_output_path, "log", f"{cfg.mode}.log"),
         level=logging.INFO,
@@ -123,26 +131,20 @@ def train(cfg: DictConfig):
 
     stream_handler = logging.StreamHandler()
     stream_handler.setLevel(logging.INFO)
-    stream_handler.setFormatter(
-        logging.Formatter("%(asctime)s:%(levelname)s: %(message)s")
-    )
+    stream_handler.setFormatter(logging.Formatter("%(asctime)s:%(levelname)s: %(message)s"))
     logging.getLogger().addHandler(stream_handler)
-
-    os.makedirs(os.path.join(cfg.train_output_path, "json"), exist_ok=True)
-    train_json_file_path = os.path.join(cfg.train_output_path, "json", "train.json")
-    coefficent_json_file_path = os.path.join(
-        cfg.train_output_path, "json", "coefficent.json"
-    )
 
     def create_json(json_file_path):
         os.makedirs(os.path.dirname(json_file_path), exist_ok=True)
-        if os.path.isfile(json_file_path):
+        if paddle.distributed.get_rank() == 0 and os.path.isfile(json_file_path):
             os.remove(json_file_path)
         with open(json_file_path, "w") as file:
             json.dump([], file)
 
+    train_json_file_path = os.path.join(cfg.train_output_path, "json", "train.json")
+    coefficient_json_file_path = os.path.join(cfg.train_output_path, "json", "coefficient.json")
     create_json(train_json_file_path)
-    create_json(coefficent_json_file_path)
+    create_json(coefficient_json_file_path)
 
     def append_dict_to_json_list(file_path, dict_element):
         assert os.path.exists(file_path), file_path
@@ -190,6 +192,17 @@ def train(cfg: DictConfig):
         cfg.train_ratio,
         cfg.test_ratio,
     )
+
+    data = {
+        "test_case_id": datamodule.test_full_caseids,
+        "train_case_id": datamodule.train_full_caseids,
+    }
+    if paddle.distributed.get_rank() == 0:
+        with open(
+            os.path.join(cfg.train_output_path, "json", "radius.json"), "w"
+        ) as json_file:
+            json.dump(data, json_file, indent=4, ensure_ascii=False)
+
     train_dataloader = datamodule.train_dataloader(
         enable_ddp=cfg.enable_ddp, batch_size=cfg.batch_size
     )
@@ -206,39 +219,13 @@ def train(cfg: DictConfig):
     test_dataloader = datamodule.test_dataloader(
         enable_ddp=False, batch_size=cfg.batch_size
     )  # each GPU use full test dataset
-    # all_files = os.listdir(cfg.train_input_path)
-    # prefix = "area"
-    os.makedirs(os.path.join(cfg.train_output_path, "json"), exist_ok=True)
-    """
-    {
-        "test_case_id":
-        [
-        SFE-CR450AF-U3-FZ-001-202503,
-        SFE-CR450AF-U3-FZ-001-202504
-        ],
-        "train_case_id":
-        [
-        SFE-CR450AF-U3-FZ-001-202505,
-        SFE-CR450AF-U3-FZ-001-202506
-        ]
-    }
-    """
-    data = {
-        "test_case_id": datamodule.test_full_caseids,
-        "train_case_id": datamodule.train_full_caseids,
-    }
-    if paddle.distributed.get_rank() == 0:
-        with open(
-            os.path.join(cfg.train_output_path, "json", "radius.json"), "w"
-        ) as json_file:
-            json.dump(data, json_file, indent=4, ensure_ascii=False)
 
     eval_meter = AverageMeterDict()
     visualize_data_dicts = []
 
     # if paddle.distributed.get_rank() == 0:
-    logging.info(f"train indices: {datamodule.train_full_caseids}")
-    logging.info(f"test indices: {datamodule.test_full_caseids}")
+    # logging.info(f"train indices: {datamodule.train_full_caseids}")
+    # logging.info(f"test indices: {datamodule.test_full_caseids}")
 
     def cal_mre(pred, label):
         return paddle.abs(x=pred - label) / paddle.abs(x=label)
@@ -378,6 +365,17 @@ def train(cfg: DictConfig):
         else:
             return None, coefficent_json_dict
 
+    # 创建性能分析器相关的代码
+    def my_on_trace_ready(prof):
+      callback = profiler.export_chrome_tracing(cfg.train_output_path + "/profiler")
+      callback(prof)
+      prof.summary(sorted_by=profiler.SortedKeys.GPUTotal)
+
+    p = profiler.Profiler(scheduler = [3,14], on_trace_ready=my_on_trace_ready, timer_only=False)
+
+    p.start()
+    accum_iter = 100
+
     for ep in range(cfg.num_epochs):
         # if paddle.distributed.get_rank() == 0:
         train_json_dict = {}
@@ -417,9 +415,23 @@ def train(cfg: DictConfig):
             msg = "Other params are frozen. || "
             msg += f"lr_cd: {optimizer.get_lr():.2e}, "
             model.eval()
-
+        loss = paddle.to_tensor(data=0.0).cuda(blocking=True)
         for data_dict in train_dataloader:
+            # with model.no_sync() if (idx_batch + 1) % accum_iter != 0 else contextlib.nullcontext():
             try:
+                """
+                if idx_batch == 100:
+                    core.nvprof_start()
+                    core.nvprof_enable_record_event()
+                    core.nvprof_nvtx_push(str(idx_batch))
+                if idx_batch > 100 and idx_batch < 110:
+                    core.nvprof_nvtx_pop()
+                    core.nvprof_nvtx_push(str(idx_batch))
+                if idx_batch == 110:
+                    core.nvprof_nvtx_pop()
+                    core.nvprof_stop()
+                    sys.exit()
+                """
                 # if idx_batch == 0 and paddle.distributed.get_rank() == 0:
                 if idx_batch == 0:
                     msg += f"Data Loading Time: {data_dict['Data_loading_time'][0]:.2f} seconds. || "
@@ -428,7 +440,7 @@ def train(cfg: DictConfig):
                     ) / (1024 * 1024 * 1024)
                     msg += f"Memory Usage: {memory_allocated:.2f} GB (forward), "
 
-                optimizer.clear_gradients(set_to_zero=False)
+                # optimizer.clear_gradients(set_to_zero=False)
                 pred, truth, cd_dict = model(
                     data_dict, idx_batch, loss_fn=loss_fn, decode_fn=datamodule.decode
                 )
@@ -455,7 +467,8 @@ def train(cfg: DictConfig):
                     continue
                 else:
                     raise
-            loss = paddle.to_tensor(data=0.0).cuda(blocking=True)
+            # loss = paddle.to_tensor(data=0.0).cuda(blocking=True)
+            # loss = paddle.to_tensor(data=0.0).to(truth.place)
             # print('cd_dict:', cd_dict)
             if cd_dict == {}:
                 for i in range(len(cfg.out_keys)):
@@ -466,11 +479,12 @@ def train(cfg: DictConfig):
                     )
                     loss_key = loss_fn(pred[st:end], truth[st:end])
 
-                    train_l2_meter.update({key: loss_key.detach().item()})
+                    # train_l2_meter.update({key: loss_key.detach().item()})
+                    train_l2_meter.update({key: loss_key.detach()})
 
                     loss += cfg.weight_list[i] * loss_key
             else:
-                Cd_pred_modify = cd_dict["Cd_pred_modify"]
+                Cd_pred_modify = cd_dict["Cd_pred_modify"][0]
                 Cd_truth = cd_dict["Cd_truth"]
                 Cd_pred = cd_dict["Cd_pred"]
                 Cd_mre = paddle.abs(x=Cd_pred_modify - Cd_truth) / paddle.abs(
@@ -478,6 +492,15 @@ def train(cfg: DictConfig):
                 )
                 loss += paddle.nn.functional.mse_loss(Cd_pred_modify, Cd_truth)
 
+                train_l2_meter.update({"pressure": cd_dict["L2_pressure"].detach()})
+                train_l2_meter.update({"wallshearstress": cd_dict["L2_wallshearstress"].detach()})
+                train_l2_meter.update({"MSE_loss": loss.detach()})
+                train_l2_meter.update({"Cd_mre": Cd_mre.detach()})
+                train_l2_meter.update({"Cd_pred": Cd_pred.detach()})
+                train_l2_meter.update({"Cd_pred_modify": Cd_pred_modify.detach()})
+                train_l2_meter.update({"Cd_truth": Cd_truth.detach()})
+
+                """
                 train_l2_meter.update(
                     {"pressure": cd_dict["L2_pressure"].detach().item()}
                 )
@@ -491,8 +514,11 @@ def train(cfg: DictConfig):
                     {"Cd_pred_modify": Cd_pred_modify.detach().item()}
                 )
                 train_l2_meter.update({"Cd_truth": Cd_truth.detach().item()})
+                """
 
-            loss.backward(grad_tensor=loss)
+            # loss.backward(grad_tensor=loss)
+            loss = loss / accum_iter
+            loss.backward()
 
             # if idx_batch == 0 and paddle.distributed.get_rank() == 0:
             if idx_batch == 0:
@@ -507,14 +533,48 @@ def train(cfg: DictConfig):
                 memory_researved = paddle.device.cuda.memory_reserved() / 1024**3
                 msg += f"{memory_researved:.2f} GB (Reserved)."
 
-            optimizer.step()
-            optimizer.clear_gradients(set_to_zero=False)
-            paddle.device.cuda.empty_cache()
+            # optimizer.step()
+            # optimizer.clear_gradients(set_to_zero=False)
+
+            if ((idx_batch + 1) % accum_iter == 0) or (idx_batch + 1 == len(train_dataloader)):
+                optimizer.step()
+                optimizer.clear_gradients(set_to_zero=False)
+            loss = paddle.to_tensor(data=0.0).cuda(blocking=True)
+
+            # print('idx_batch:', idx_batch)
+            # paddle.device.cuda.empty_cache()
+            p.step()
+            if idx_batch == 19:
+                p.stop()
+                # exit()
+
             idx_batch += 1
         scheduler.step()
         t2 = default_timer()
 
+        msg_ep = f"Training epoch {ep} took {t2 - t1:.2f} seconds. L2_Loss: "
+        train_dict = train_l2_meter.avg
+        for k, v in train_dict.items():
+            msg_ep += f"{v:.4f}({k}), "        
+        logging.info(msg_ep + msg)
+
+        if (ep + 1) % cfg.save_per_epoch == 0 or ep == cfg.num_epochs - 1:
+            state = {"model": model.state_dict(), "lr": optimizer.get_lr(), "epoch": ep}
+            os.makedirs(
+                os.path.dirname(
+                    f"{cfg.train_output_path}/pd/{cfg.model_name}.pdparams"
+                ),
+                exist_ok=True,
+            )
+            paddle.save(
+                obj=state, path=f"{cfg.train_output_path}/pd/{cfg.model_name}.pdparams"
+            )
+            logging.info(
+                f"Save checkpoint to: {cfg.train_output_path}/pd/{cfg.model_name}.pdparams"
+            )
+
         # if paddle.distributed.get_rank() == 0:
+        """
         train_json_dict["epoch"] = ep
         if "Cd_mre" in train_l2_meter.avg:
             train_json_dict["mre"] = train_l2_meter.avg["Cd_mre"]
@@ -532,7 +592,8 @@ def train(cfg: DictConfig):
         # if paddle.distributed.get_rank() == 0 and "msg" in locals():
         logging.info(msg_ep + msg)
         max_loss_case_id = None
-        if ep == 0 or (ep + 1) % cfg.save_per_epoch == 0 or ep == cfg.num_epochs - 1:
+        # if ep == 0 or (ep + 1) % cfg.save_per_epoch == 0 or ep == cfg.num_epochs - 1:
+        if (ep + 1) % cfg.save_per_epoch == 0 or ep == cfg.num_epochs - 1:
             state = {"model": model.state_dict(), "lr": optimizer.get_lr(), "epoch": ep}
             os.makedirs(
                 os.path.dirname(
@@ -554,17 +615,17 @@ def train(cfg: DictConfig):
 
         if paddle.distributed.get_rank() == 0:
             if isinstance(coefficent_json_dict, dict):
-                create_json(coefficent_json_file_path)
+                create_json(coefficient_json_file_path)
                 append_dict_to_json_list(
-                    coefficent_json_file_path, coefficent_json_dict
+                    coefficient_json_file_path, coefficent_json_dict
                 )
             if isinstance(coefficent_json_dict, list):
-                create_json(coefficent_json_file_path)
+                create_json(coefficient_json_file_path)
                 for coefficent_json_dict_ in coefficent_json_dict:
                     append_dict_to_json_list(
-                        coefficent_json_file_path, coefficent_json_dict_
+                        coefficient_json_file_path, coefficent_json_dict_
                     )
-
+        """
 
 def save_eval_results(
     cfg: DictConfig,

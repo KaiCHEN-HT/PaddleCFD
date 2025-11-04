@@ -275,7 +275,7 @@ class GNOFNOGNO_all(GNOFNOGNO):
                 # paddle.device.cuda.empty_cache()  # clear GPU memory
             pred = paddle.concat(x=tuple(pred_chunks), axis=0)
         else:
-            pred = self(x_in, x_out, df, area=area)
+            pred = super().forward(x_in, x_out, df, area=area)
         pred = pred.transpose(perm=[1, 0])
         if loss_fn is None:
             loss_fn = self.loss
@@ -286,7 +286,8 @@ class GNOFNOGNO_all(GNOFNOGNO):
         truth = []
         for i in range(len(self.out_keys)):
             key = self.out_keys[i]
-            truth_key = data_dict[key][0].to(device)[:: self.subsample_eval, ...]
+            # truth_key = data_dict[key][0].to(device)[:: self.subsample_eval, ...]
+            truth_key = data_dict[key][0][:: self.subsample_eval, ...]
             # assert not paddle.any(paddle.isnan(truth_key)), "truth_key 存在无效值！"
             if len(tuple(truth_key.shape)) == 1:
                 truth_key = truth_key.reshape((-1, 1))
