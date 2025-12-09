@@ -424,90 +424,90 @@ def train(cfg: DictConfig):
 
         loss = paddle.to_tensor(data=0.0)
         for data_dict in train_dataloader:
-            with model.no_sync() if (idx_batch + 1) % accum_iter != 0 else contextlib.nullcontext():
-                try:
-                    if idx_batch == 0 and paddle.distributed.get_rank() == 0:
-                        msg += f"Data Loading Time: {data_dict['Data_loading_time'][0]:.2f} seconds. || "
-                        memory_allocated = paddle.device.cuda.memory_allocated(
-                            device=device
-                        ) / (1024 * 1024 * 1024)
-                        msg += f"Memory Usage: {memory_allocated:.2f} GB (forward), "
+            # with model.no_sync() if (idx_batch + 1) % accum_iter != 0 else contextlib.nullcontext():
+            try:
+                if idx_batch == 0 and paddle.distributed.get_rank() == 0:
+                    msg += f"Data Loading Time: {data_dict['Data_loading_time'][0]:.2f} seconds. || "
+                    memory_allocated = paddle.device.cuda.memory_allocated(
+                        device=device
+                    ) / (1024 * 1024 * 1024)
+                    msg += f"Memory Usage: {memory_allocated:.2f} GB (forward), "
 
-                    optimizer.clear_gradients(set_to_zero=False)
-                    pred, truth, cd_dict = model(
-                        data_dict, idx_batch, loss_fn=loss_fn, decode_fn=datamodule.decode
-                    )
-                    if "OOM" in cd_dict:
-                        if cd_dict["OOM"] == True:
-                            idx_batch += 1
-                            continue
-                        elif cd_dict["OOM"] == False and paddle.any(
-                            paddle.isnan(cd_dict["Cd_truth"])
-                        ):
-                            logging.info(
-                                f"WARNING: nan detected on sample {idx_batch}, skipping this sample."
-                            )
-                            idx_batch += 1
-
-                            continue
-
-                except MemoryError as e:
-                    raise
-                    if "Out of memory" in str(e):
-                        num_OOM += 1
-                        if hasattr(paddle.device.cuda, "empty_cache"):
-                            paddle.device.cuda.empty_cache()
+                optimizer.clear_gradients(set_to_zero=False)
+                pred, truth, cd_dict = model(
+                    data_dict, idx_batch, loss_fn=loss_fn, decode_fn=datamodule.decode
+                )
+                if "OOM" in cd_dict:
+                    if cd_dict["OOM"] == True:
+                        idx_batch += 1
                         continue
-                    else:
-                        raise
-                # print('cd_dict:', cd_dict)
-                if cd_dict == {}:
-                    for i in range(len(cfg.out_keys)):
-                        key = cfg.out_keys[i]
-                        st, end = (
-                            sum(cfg.out_channels[:i]),
-                            sum(cfg.out_channels[:i]) + cfg.out_channels[i],
+                    elif cd_dict["OOM"] == False and paddle.any(
+                        paddle.isnan(cd_dict["Cd_truth"])
+                    ):
+                        logging.info(
+                            f"WARNING: nan detected on sample {idx_batch}, skipping this sample."
                         )
-                        loss_key = loss_fn(pred[st:end], truth[st:end])
+                        idx_batch += 1
 
-                        train_l2_meter.update({key: loss_key.detach().item()})
+                        continue
 
-                        loss += cfg.weight_list[i] * loss_key
+            except MemoryError as e:
+                raise
+                if "Out of memory" in str(e):
+                    num_OOM += 1
+                    if hasattr(paddle.device.cuda, "empty_cache"):
+                        paddle.device.cuda.empty_cache()
+                    continue
                 else:
-                    Cd_pred_modify = cd_dict["Cd_pred_modify"]
-                    Cd_truth = cd_dict["Cd_truth"]
-                    Cd_pred = cd_dict["Cd_pred"]
-                    Cd_mre = paddle.abs(x=Cd_pred_modify - Cd_truth) / paddle.abs(
-                        x=Cd_truth
+                    raise
+            # print('cd_dict:', cd_dict)
+            if cd_dict == {}:
+                for i in range(len(cfg.out_keys)):
+                    key = cfg.out_keys[i]
+                    st, end = (
+                        sum(cfg.out_channels[:i]),
+                        sum(cfg.out_channels[:i]) + cfg.out_channels[i],
                     )
-                    loss += paddle.nn.functional.mse_loss(Cd_pred_modify, Cd_truth)
+                    loss_key = loss_fn(pred[st:end], truth[st:end])
 
-                    train_l2_meter.update({"pressure": cd_dict["L2_pressure"].detach()})
-                    train_l2_meter.update({"wallshearstress": cd_dict["L2_wallshearstress"].detach()})
-                    train_l2_meter.update({"MSE_loss": loss.detach()})
-                    train_l2_meter.update({"Cd_mre": Cd_mre.detach()})
-                    train_l2_meter.update({"Cd_pred": Cd_pred.detach()})
-                    train_l2_meter.update({"Cd_pred_modify": Cd_pred_modify.detach()})
-                    train_l2_meter.update({"Cd_truth": Cd_truth.detach()})
+                    train_l2_meter.update({key: loss_key.detach().item()})
 
-                    """
-                    train_l2_meter.update(
-                        {"pressure": cd_dict["L2_pressure"].detach().item()}
-                    )
-                    train_l2_meter.update(
-                        {"wallshearstress": cd_dict["L2_wallshearstress"].detach().item()}
-                    )
-                    train_l2_meter.update({"MSE_loss": loss.detach().item()})
-                    train_l2_meter.update({"Cd_mre": Cd_mre.detach().item()})
-                    train_l2_meter.update({"Cd_pred": Cd_pred.detach().item()})
-                    train_l2_meter.update(
-                        {"Cd_pred_modify": Cd_pred_modify.detach().item()}
-                    )
-                    train_l2_meter.update({"Cd_truth": Cd_truth.detach().item()})
-                    """
-                # loss.backward(grad_tensor=loss)
-                loss = loss / accum_iter
-                loss.backward()
+                    loss += cfg.weight_list[i] * loss_key
+            else:
+                Cd_pred_modify = cd_dict["Cd_pred_modify"]
+                Cd_truth = cd_dict["Cd_truth"]
+                Cd_pred = cd_dict["Cd_pred"]
+                Cd_mre = paddle.abs(x=Cd_pred_modify - Cd_truth) / paddle.abs(
+                    x=Cd_truth
+                )
+                loss += paddle.nn.functional.mse_loss(Cd_pred_modify, Cd_truth)
+
+                train_l2_meter.update({"pressure": cd_dict["L2_pressure"].detach()})
+                train_l2_meter.update({"wallshearstress": cd_dict["L2_wallshearstress"].detach()})
+                train_l2_meter.update({"MSE_loss": loss.detach()})
+                train_l2_meter.update({"Cd_mre": Cd_mre.detach()})
+                train_l2_meter.update({"Cd_pred": Cd_pred.detach()})
+                train_l2_meter.update({"Cd_pred_modify": Cd_pred_modify.detach()})
+                train_l2_meter.update({"Cd_truth": Cd_truth.detach()})
+
+                """
+                train_l2_meter.update(
+                    {"pressure": cd_dict["L2_pressure"].detach().item()}
+                )
+                train_l2_meter.update(
+                    {"wallshearstress": cd_dict["L2_wallshearstress"].detach().item()}
+                )
+                train_l2_meter.update({"MSE_loss": loss.detach().item()})
+                train_l2_meter.update({"Cd_mre": Cd_mre.detach().item()})
+                train_l2_meter.update({"Cd_pred": Cd_pred.detach().item()})
+                train_l2_meter.update(
+                    {"Cd_pred_modify": Cd_pred_modify.detach().item()}
+                )
+                train_l2_meter.update({"Cd_truth": Cd_truth.detach().item()})
+                """
+            # loss.backward(grad_tensor=loss)
+            # loss = loss / accum_iter
+            loss.backward()
 
             # if idx_batch == 0 and paddle.distributed.get_rank() == 0:
             if idx_batch == 0:
