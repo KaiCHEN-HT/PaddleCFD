@@ -306,7 +306,7 @@ if __name__ == "__main__":
     logger = init_all(seed_value, name=save_dir, dtype=data_type)
     scaler = paddle.amp.GradScaler(incr_every_n_steps=2000, init_loss_scaling=65536.0)
     begin_time = time.time()
-    data_dir = "../data/UX_nan_filtered.npy"
+    data_dir = "/share/airfoil_wake/UX_nan_filtered.npy"
     logger.info(f"Data path: {data_dir}")
     traj = np.load(data_dir)
     traj = np.expand_dims(traj, axis=0)
@@ -319,7 +319,7 @@ if __name__ == "__main__":
     if bad_timesteps:
         logger.info(f"Bad time steps: {bad_timesteps}")
         sys.exit()
-    mask_dir = "../data/mask.npy"
+    mask_dir = "/share/airfoil_wake/mask.npy"
     logger.info(f"Mask path: {mask_dir}")
     mask = np.load(mask_dir).reshape(1, 1, traj.shape[-2], traj.shape[-1])
     traj = traj * mask

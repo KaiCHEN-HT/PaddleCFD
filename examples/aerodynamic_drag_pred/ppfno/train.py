@@ -11,6 +11,7 @@ from typing import Dict
 from typing import List
 from typing import Tuple
 from typing import Union
+import contextlib
 
 import hydra
 import meshio
@@ -236,9 +237,9 @@ def train(cfg: DictConfig):
     eval_meter = AverageMeterDict()
     visualize_data_dicts = []
 
-    if paddle.distributed.get_rank() == 0:
-        logging.info(f"train indices: {datamodule.train_full_caseids}")
-        logging.info(f"test indices: {datamodule.test_full_caseids}")
+    #if paddle.distributed.get_rank() == 0:
+    #    logging.info(f"train indices: {datamodule.train_full_caseids}")
+    #    logging.info(f"test indices: {datamodule.test_full_caseids}")
 
     def cal_mre(pred, label):
         return paddle.abs(x=pred - label) / paddle.abs(x=label)
@@ -248,8 +249,8 @@ def train(cfg: DictConfig):
         max_cd_error = 0.0
         max_loss_case_id = None
         coefficent_json_dict = []
-        if paddle.distributed.get_rank() == 0:
-            logging.info(
+        #if paddle.distributed.get_rank() == 0:
+        logging.info(
                 f"Start evaluting {cfg.model} at epoch {epoch_id}, number of samples: {len(test_dataloader)}"
             )
 
@@ -266,7 +267,8 @@ def train(cfg: DictConfig):
         for i, data_dict in enumerate(test_dataloader):
             case_coefficent_json_dict = {}
             device = ParallelEnv().device_id
-            device = paddle.CUDAPlace(device)
+#            device = paddle.CUDAPlace(device)
+            device = paddle.CustomPlace("metax_gpu", device)
             try:
                 out_dict, pred, truth, cd_dict = current_model.eval_dict(
                     device, data_dict, loss_fn=loss_fn, decode_fn=datamodule.decode
@@ -379,8 +381,8 @@ def train(cfg: DictConfig):
             return None, coefficent_json_dict
 
     for ep in range(cfg.num_epochs):
-        if paddle.distributed.get_rank() == 0:
-            train_json_dict = {}
+        #if paddle.distributed.get_rank() == 0:
+        train_json_dict = {}
         coefficent_json_dict = None
         if ep <= resume_ep:
             continue
@@ -419,7 +421,8 @@ def train(cfg: DictConfig):
             model.eval()
 
         for data_dict in train_dataloader:
-            try:
+            with model.no_sync() if (idx_batch + 1) % accum_iter != 0 else contextlib.nullcontext():
+                try:
                 if idx_batch == 0 and paddle.distributed.get_rank() == 0:
                     msg += f"Data Loading Time: {data_dict['Data_loading_time'][0]:.2f} seconds. || "
                     memory_allocated = paddle.device.cuda.memory_allocated(
@@ -454,7 +457,7 @@ def train(cfg: DictConfig):
                     continue
                 else:
                     raise
-            loss = paddle.to_tensor(data=0.0).cuda(blocking=True)
+            loss = paddle.to_tensor(data=0.0)
             # print('cd_dict:', cd_dict)
             if cd_dict == {}:
                 for i in range(len(cfg.out_keys)):
@@ -502,7 +505,7 @@ def train(cfg: DictConfig):
                     paddle.device.cuda.max_memory_allocated(device=device) / 1024**3
                 )
                 msg += f"{max_memory_allocated:.2f} GB (MAX), "
-                memory_researved = paddle.device.cuda.memory_reserved() / 1024**3
+                memory_researved = paddle.device.cuda.memory_reserved(paddle.CustomPlace("metax_gpu",0)) / 1024**3
                 msg += f"{memory_researved:.2f} GB (Reserved)."
 
             optimizer.step()

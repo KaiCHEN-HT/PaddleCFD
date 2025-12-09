@@ -24,7 +24,7 @@ import numpy as np
 import paddle
 from paddle.io import DataLoader
 from tqdm import tqdm
-from ppcfd.models import Transolver as Model
+from ppcfd.models.pptransformer.Transolver import Transolver as Model
 from ppcfd.data.shapenetcar_datamodule import GraphDataset
 from ppcfd.data.shapenetcar_datamodule import load_train_val_fold
 
@@ -270,7 +270,8 @@ def train(
 
 @hydra.main(version_base=None, config_path="./configs", config_name="transolver_shapenetcar.yaml")
 def main(config):
-    paddle.device.set_device(f"gpu:{int(config.gpu)}")
+    paddle.CustomPlace("metax_gpu", 0)
+#    paddle.device.set_device(f"gpu:{int(config.gpu)}")
     train_data, val_data, coef_norm = load_train_val_fold(config)
     train_ds = GraphDataset(train_data, use_cfd_mesh=False, r=0.2)
     val_ds = GraphDataset(val_data, use_cfd_mesh=False, r=0.2)

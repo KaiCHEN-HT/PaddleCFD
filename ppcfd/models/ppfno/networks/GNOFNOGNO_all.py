@@ -280,8 +280,8 @@ class GNOFNOGNO_all(GNOFNOGNO):
         if loss_fn is None:
             loss_fn = self.loss
         out_dict = {
-            "Cd_pred": paddle.to_tensor(data=0.0).cuda(blocking=True),
-            "Cd_truth": paddle.to_tensor(data=0.0).cuda(blocking=True),
+            "Cd_pred": paddle.to_tensor(data=0.0),
+            "Cd_truth": paddle.to_tensor(data=0.0),
         }
         truth = []
         for i in range(len(self.out_keys)):
@@ -303,7 +303,7 @@ class GNOFNOGNO_all(GNOFNOGNO):
                 truth_decode = decode_fn(truth_key, i)
 
                 if key == "pressure":
-                    drag_weight = data_dict["dragWeight"][0].cuda(blocking=True)
+                    drag_weight = data_dict["dragWeight"][0]
                     # drag_weight = drag_weight * 10e10
                     drag_weight = drag_weight[:: self.subsample_eval]
                     drag_pred = paddle.sum(x=drag_weight * pred_decode) * 1e-10
@@ -313,7 +313,7 @@ class GNOFNOGNO_all(GNOFNOGNO):
                 elif key == "wallshearstress":
                     drag_weight = data_dict["dragWeightWss"][0][
                         : self.out_channels[i], :
-                    ].cuda(blocking=True)
+                    ]
                     drag_weight = drag_weight[..., :: self.subsample_eval]
                     drag_pred = paddle.sum(x=drag_weight * pred_decode)
                     drag_truth = paddle.sum(x=drag_weight * truth_decode)

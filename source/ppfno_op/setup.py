@@ -86,7 +86,7 @@ class cmake_build_ext(build_ext):
         else:
             build_args.append("--parallel")
 
-        build_args.extend(["--target", ext.target, "--"])
+#        build_args.extend(["--target", ext.target, "--"])
 
         cwd = os.getcwd()
         try:
@@ -94,7 +94,7 @@ class cmake_build_ext(build_ext):
 
             self.announce("Configuring with CMake...", level=3)
             try:
-                self.spawn([cmake, ext.source_dir, *cmake_args])
+                self.spawn(["cmake_maca", ext.source_dir, *cmake_args])
             except Exception as e:
                 self.announce("CMake configuring failed: {}".format(str(e)), level=3)
                 raise RuntimeError(f"CMake configuring failed: {str(e)}")
@@ -102,7 +102,7 @@ class cmake_build_ext(build_ext):
             if not self.dry_run:
                 self.announce("Building with cmake...", level=3)
                 try:
-                    self.spawn([cmake, "--build", ".", *build_args])
+                    self.spawn(["cmake_maca", "--build", ".", *build_args])
                 except Exception as e:
                     self.announce("CMake building failed: {}".format(str(e)), level=3)
                     raise RuntimeError(f"CMake building failed: {str(e)}")

@@ -1,5 +1,5 @@
 random_seed: 1234
-device: "gpu:0"
+device: "metax_gpu:0"
 dtype: "float32"
 mode: "train"  # train or eval
 

@@ -18,7 +18,7 @@ process: "interpolation"
 output_dir: ${hydra:run.dir}
 
 DATA:
-  root_data_dir: null
+  root_data_dir: /share/flow_field_prediction/single/
   dataset:
     physical_system: 'navier-stokes'
     window: 1

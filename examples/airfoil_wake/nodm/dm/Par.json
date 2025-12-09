@@ -1,0 +1,1 @@
+{"inp_shift": -133063424.0, "inp_scale": 287122496.0, "out_shift": -9.482343673706055, "out_scale": 19.400909423828125, "nx": 128, "ny": 512, "nf": 1, "lb": 1, "lf": 1, "num_epochs": 100000, "sigma_data": 0.00774927344173193, "channels": 1, "self_condition": true}

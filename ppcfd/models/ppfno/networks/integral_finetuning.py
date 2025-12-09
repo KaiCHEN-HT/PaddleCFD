@@ -23,7 +23,7 @@ class Integral_Cd(paddle.nn.Layer):
     def forward(self, cd_dict, out_keys=None, ):      
 
         cd_pred = paddle.to_tensor([cd_dict[f'Cd_{out_keys[0]}_pred'],
-                                    cd_dict[f'Cd_{out_keys[1]}_pred']]).cuda(blocking=True)
+                                    cd_dict[f'Cd_{out_keys[1]}_pred']])
         for _, layer in enumerate(self.layers):
             cd_pred = layer(cd_pred)
         cd_pred = paddle.Tensor.sigmoid(cd_pred) * (0.6 - 0.1) + 0.1

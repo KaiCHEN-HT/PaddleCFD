@@ -67,7 +67,8 @@ NX = 1024
 NY = 1024
 delta_y = 128
 skip_x = skip_y = 2
-script_dir = os.path.dirname(os.path.abspath(__file__))
+#script_dir = os.path.dirname(os.path.abspath(__file__))
+script_dir = '/share/airfoil_wake/'
 print("Current directory:", script_dir)
 
 file = h5py.File(os.path.join(script_dir, "airfoilLES_grid.h5"), "r")

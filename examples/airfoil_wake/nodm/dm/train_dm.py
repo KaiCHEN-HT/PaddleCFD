@@ -233,22 +233,22 @@ if __name__ == "__main__":
     scaler = paddle.amp.GradScaler(incr_every_n_steps=2000, init_loss_scaling=65536.0)
     begin_time = time.time()
 
-    train_pred_dir = "../TRAIN_PRED.npy"
-    train_true_dir = "../TRAIN_TRUE.npy"
+    train_pred_dir = "/share/airfoil_wake/TRAIN_PRED.npy"
+    train_true_dir = "/share/airfoil_wake/TRAIN_TRUE.npy"
     logger.info(f"Loading train data from: {train_pred_dir}, {train_true_dir}")
     x_train = np.load(train_pred_dir)
     y_train = np.load(train_true_dir)
     logger.info(f"Shape of train data: {x_train.shape}")
 
-    val_pred_dir = "../VAL_PRED.npy"
-    val_true_dir = "../VAL_TRUE.npy"
+    val_pred_dir = "/share/airfoil_wake/VAL_PRED.npy"
+    val_true_dir = "/share/airfoil_wake/VAL_TRUE.npy"
     logger.info(f"Loading val data from: {val_pred_dir}, {val_true_dir}")
     x_val = np.load(val_pred_dir)
     y_val = np.load(val_true_dir)
     logger.info(f"Shape of val data: {x_val.shape}")
 
-    test_pred_dir = "../TEST_PRED.npy"
-    test_true_dir = "../TEST_TRUE.npy"
+    test_pred_dir = "/share/airfoil_wake/TEST_PRED.npy"
+    test_true_dir = "/share/airfoil_wake/TEST_TRUE.npy"
     logger.info(f"Loading test data from: {test_pred_dir}, {test_true_dir}")
     x_test = np.load(test_pred_dir)
     y_test = np.load(test_true_dir)
@@ -404,6 +404,9 @@ if __name__ == "__main__":
             optimizer.clear_gradients(set_to_zero=False)
             with paddle.amp.auto_cast(enable=False):
                 loss = model(h_fidel, l_fidel)
+                if paddle.isnan(loss):
+                     pdb.set_trace()
+                     loss = model(h_fidel, l_fidel)
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()

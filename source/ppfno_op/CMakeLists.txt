@@ -23,7 +23,7 @@ if(NOT DEFINED PYBIND11_VERSION AND NOT "$ENV{PYBIND11_VERSION}" STREQUAL "")
     set(PYBIND11_VERSION "$ENV{PYBIND11_VERSION}")
 endif()
 if(NOT PYBIND11_VERSION)
-    set(PYBIND11_VERSION stable)
+    set(PYBIND11_VERSION v3.0.0)
 endif()
 
 if(NOT CMAKE_BUILD_TYPE)
@@ -230,7 +230,7 @@ endif()
 if("${PYBIND11_CMAKE_DIR}" STREQUAL "")
     FetchContent_Declare(
             pybind11
-            GIT_REPOSITORY https://github.com/pybind/pybind11.git
+	    GIT_REPOSITORY http://pdegit.metax-internal.com/pde-hpc/pybind11.git
             GIT_TAG "${PYBIND11_VERSION}"
             GIT_SHALLOW TRUE
             SOURCE_DIR "${THIRD_PARTY_DIR}/pybind11"

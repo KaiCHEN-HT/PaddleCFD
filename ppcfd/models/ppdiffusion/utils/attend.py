@@ -3,7 +3,7 @@ from functools import wraps
 
 import paddle
 import paddle.nn.functional as F
-
+from paddle.nn.functional.flash_attention import SDPBackend, sdpa_kernel
 from .utils import custom_sdp_kernel
 
 
@@ -45,8 +45,8 @@ class Attend(paddle.nn.Layer):
         self.cpu_config = AttentionConfig(True, True, True)
         self.cuda_config = None
 
-        if not paddle.is_compiled_with_cuda() or not flash:
-            return
+        #if not paddle.is_compiled_with_cuda() or not flash:
+        #    return
 
         # device_properties = paddle.device.cuda.get_device_properties()
         # device_version = version.parse(device_properties.compute_capability)
@@ -68,14 +68,15 @@ class Attend(paddle.nn.Layer):
             default_scale = tuple(q.shape)[-1]
             q = q * (self.scale / default_scale)
         q, k, v = map(lambda t: t.contiguous(), (q, k, v))
-
+        is_cuda = True
         config = self.cuda_config if is_cuda else self.cpu_config
 
-        with custom_sdp_kernel(
-            enable_math=config.enable_math,
-            enable_flash=config.enable_flash,
-            enable_mem_efficient=config.enable_mem_efficient,
-        ):
+        #with custom_sdp_kernel(
+        #    enable_math=config.enable_math,
+        #    enable_flash=config.enable_flash,
+        #    enable_mem_efficient=config.enable_mem_efficient,
+        #):
+        with sdpa_kernel([SDPBackend.MATH, SDPBackend.EFFICIENT_ATTENTION]):
             q = q.transpose([0, 2, 1, 3])
             k = k.transpose([0, 2, 1, 3])
             v = v.transpose([0, 2, 1, 3])
