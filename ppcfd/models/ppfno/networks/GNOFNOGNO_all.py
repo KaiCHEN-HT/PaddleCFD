@@ -286,7 +286,8 @@ class GNOFNOGNO_all(GNOFNOGNO):
         truth = []
         for i in range(len(self.out_keys)):
             key = self.out_keys[i]
-            truth_key = data_dict[key][0].to(device)[:: self.subsample_eval, ...]
+            # truth_key = data_dict[key][0].to(device)[:: self.subsample_eval, ...]
+            truth_key = data_dict[key][0][:: self.subsample_eval, ...]
             # assert not paddle.any(paddle.isnan(truth_key)), "truth_key 存在无效值！"
             if len(tuple(truth_key.shape)) == 1:
                 truth_key = truth_key.reshape((-1, 1))

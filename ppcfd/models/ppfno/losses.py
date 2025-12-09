@@ -27,7 +27,8 @@ class LpLoss(object):
         return all_norms
 
     def rel(self, x, y):
-        num_examples = tuple(x.shape)[0]
+        # num_examples = tuple(x.shape)[0]
+        num_examples = paddle.shape(x)[0]
         diff_norms = paddle.linalg.norm(x=x.reshape((num_examples, -1)) - y.
             reshape((num_examples, -1)), p=self.p, axis=1)
         y_norms = paddle.linalg.norm(x=y.reshape((num_examples, -1)), p=self.
